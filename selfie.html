@@ -82,8 +82,18 @@
 
     let stream = null;
     let capturedDataUrl = null;
+    let cameraReady = false;
 
     function setStatus(text) { statusEl.textContent = text; }
+
+    // If this page wasn't actually launched from the driver bot's button (a
+    // bookmarked/shared link opened directly, or an odd Telegram client
+    // context), `initData` comes back empty and every upload will fail no
+    // matter how good the photo is — surface that immediately instead of
+    // letting the user retake a photo three times for nothing.
+    if (!tg.initData) {
+      setStatus('⚠️ გვერდი გახსენით პირდაპირ მძღოლის ბოტიდან, ღილაკზე „🤳 სელფის გადაღება" დაჭერით.');
+    }
 
     async function startCamera() {
       try {
@@ -92,6 +102,17 @@
           audio: false,
         });
         video.srcObject = stream;
+        await video.play().catch(() => {});
+        // Wait for a real decoded frame — capturing before this can produce
+        // an all-black photo on some WebViews even though the live preview
+        // looks fine a split second later.
+        await new Promise(resolve => {
+          if (video.readyState >= 2 && video.videoWidth) return resolve();
+          const onReady = () => { video.removeEventListener('loadeddata', onReady); resolve(); };
+          video.addEventListener('loadeddata', onReady);
+          setTimeout(resolve, 3000); // don't hang forever if the event never fires
+        });
+        cameraReady = true;
       } catch (err) {
         setStatus('❌ კამერაზე წვდომა ვერ მოხერხდა — დართეთ ნებართვა და თავიდან გახსენით გვერდი.');
       }
@@ -121,6 +142,10 @@
     }
 
     function takeShot() {
+      if (!cameraReady || !video.videoWidth || !video.videoHeight) {
+        setStatus('⏳ კამერა ჯერ არ არის მზად — მოითმინეთ წამი და სცადეთ ისევ.');
+        return;
+      }
       const canvas = document.createElement('canvas');
       canvas.width  = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -130,6 +155,20 @@
       // identity document, so it needs to be a true, non-reversed image of
       // the driver, not flipped left/right.
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Guard against an all-black frame — some WebViews report the video as
+      // "ready" a moment before it's actually decoding real frames, which
+      // would otherwise silently produce a useless black photo.
+      const px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let hasLight = false;
+      for (let i = 0; i < px.length; i += 800) { // sparse sample, plenty for an all-black check
+        if (px[i] > 12 || px[i + 1] > 12 || px[i + 2] > 12) { hasLight = true; break; }
+      }
+      if (!hasLight) {
+        setStatus('⚠️ კამერამ ჯერ არ დაიწყო სურათის გადაცემა — სცადეთ ხელახლა წამში.');
+        return;
+      }
+
       capturedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
       // The preview thumbnail stays visually mirrored (CSS, like the live
       // video) so it still looks like "yourself in a mirror" when reviewing.
@@ -143,13 +182,25 @@
 
     async function send() {
       if (!capturedDataUrl) return;
+
+      if (!tg.initData) {
+        setStatus('⚠️ გვერდი გახსენით პირდაპირ მძღოლის ბოტიდან, ღილაკზე „🤳 სელფის გადაღება" დაჭერით — ბმულის ცალკე გახსნისას ვერიფიკაცია ვერ მუშაობს.');
+        return;
+      }
+
       btnRow.innerHTML = '<button disabled>⏳ იგზავნება...</button>';
       setStatus('');
       try {
         const res = await fetch(UPLOAD_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ initData: tg.initData, imageBase64: capturedDataUrl }),
+          body: JSON.stringify({
+            initData: tg.initData,
+            imageBase64: capturedDataUrl,
+            // Diagnostics only (server logs, never blocks anything) — helps
+            // debug WebView-specific quirks without needing device access.
+            debug: { platform: tg.platform, version: tg.version, w: video.videoWidth, h: video.videoHeight },
+          }),
         });
         const data = await res.json().catch(() => null);
         if (!res.ok || !data || !data.ok) {
