@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>სელფის გადაღება</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -172,6 +175,7 @@
       capturedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
       // The preview thumbnail stays visually mirrored (CSS, like the live
       // video) so it still looks like "yourself in a mirror" when reviewing.
+      shotImg.src = capturedDataUrl;
       showPreviewState();
     }
 
