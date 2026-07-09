@@ -125,12 +125,14 @@
       canvas.width  = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
-      // Mirror to match what the driver sees in the preview.
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
+      // The live <video> preview is mirrored via CSS (natural "look in a
+      // mirror" framing), but the SAVED photo must not be — this is an
+      // identity document, so it needs to be a true, non-reversed image of
+      // the driver, not flipped left/right.
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       capturedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
-      shotImg.src = capturedDataUrl;
+      // The preview thumbnail stays visually mirrored (CSS, like the live
+      // video) so it still looks like "yourself in a mirror" when reviewing.
       showPreviewState();
     }
 
